@@ -1,0 +1,7 @@
+# Add backend dependencies here.
+flask
+flask-cors
+requests
+numpy
+pyttsx3
+scipy
