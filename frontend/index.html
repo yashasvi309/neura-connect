@@ -1,12 +1,131 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Neura Connect Frontend</title>
-  </head>
-  <body>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neura Connect | Triage Dashboard</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { background-color: #020617; color: #cbd5e1; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    </style>
+</head>
+<body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function App() {
+            const [telemetry, setTelemetry] = useState({
+                status: 'STANDBY',
+                z: 0.0,
+                variance: 0.0,
+                cloud_response: null
+            });
+
+            // Poll the local Flask Hub every 500ms
+            useEffect(() => {
+                const fetchStatus = async () => {
+                    try {
+                        const res = await fetch('http://127.0.0.1:5000/status');
+                        const data = await res.json();
+                        setTelemetry(data);
+                    } catch (err) {
+                        console.error("Waiting for Neura Connect Hub...");
+                    }
+                };
+
+                const interval = setInterval(fetchStatus, 500);
+                return () => clearInterval(interval);
+            }, []);
+
+            const isAlert = telemetry.status === 'ALERT';
+            const env = telemetry.cloud_response?.environment;
+            const triage = telemetry.cloud_response?.triage;
+
+            return (
+                <div className="min-h-screen p-8">
+                    {/* HEADER */}
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-4 mb-8">
+                        <div>
+                            <h1 className="text-4xl font-bold tracking-wider text-white">NEURA<span className="text-cyan-500">CONNECT</span></h1>
+                            <p className="text-sm text-slate-500 uppercase tracking-widest mt-1">Distributed Neurological Triage</p>
+                        </div>
+                        
+                        {/* STATUS PILL */}
+                        <div className={`px-6 py-2 rounded-full border-2 font-bold tracking-widest uppercase transition-colors duration-500 ${
+                            isAlert 
+                                ? 'bg-red-950 border-red-500 text-red-500 animate-pulse' 
+                                : 'bg-cyan-950/30 border-cyan-800 text-cyan-500'
+                        }`}>
+                            {isAlert ? '🚨 CRITICAL ALERT' : '🟢 STANDBY'}
+                        </div>
+                    </div>
+
+                    {/* MAIN METRICS */}
+                    <div className="grid grid-cols-2 gap-6 mb-8">
+                        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                            <h2 className="text-sm text-slate-500 uppercase mb-2">Live Z-Axis (g)</h2>
+                            <div className="text-7xl font-light text-white">
+                                {telemetry.z.toFixed(2)}
+                            </div>
+                        </div>
+                        
+                        <div className={`border rounded-xl p-6 transition-colors duration-500 ${isAlert ? 'bg-red-950/20 border-red-900/50' : 'bg-slate-900 border-slate-800'}`}>
+                            <h2 className="text-sm text-slate-500 uppercase mb-2">EWMV Variance (TRM)</h2>
+                            <div className={`text-7xl font-light ${isAlert ? 'text-red-400' : 'text-cyan-400'}`}>
+                                {telemetry.variance.toFixed(2)}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* CLOUD LOGIC PANEL (Only shows during an alert) */}
+                    {isAlert && telemetry.cloud_response && (
+                        <div className="bg-red-950/30 border border-red-900 rounded-xl overflow-hidden mt-8">
+                            <div className="bg-red-950 px-6 py-3 border-b border-red-900 flex justify-between">
+                                <span className="font-bold text-red-400">FEATHERLESS AI TRIAGE REPORT</span>
+                                <span className="text-red-500 font-bold tracking-wider">Priority: {triage?.severity || 'HIGH'}</span>
+                            </div>
+                            
+                            <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                                {/* Bright Data Context */}
+                                <div className="col-span-1 border-r border-red-900/50 pr-6">
+                                    <h3 className="text-sm text-red-400/70 uppercase mb-3 font-bold">🌐 Environmental Context</h3>
+                                    <div className="space-y-3 text-lg text-red-200">
+                                        <p><span className="text-red-500/50 text-sm uppercase block">Location</span> {env?.location || 'Hyderabad'}</p>
+                                        <p><span className="text-red-500/50 text-sm uppercase block">Air Quality</span> {env?.aqi || 165} (Unhealthy)</p>
+                                        <p><span className="text-red-500/50 text-sm uppercase block">Temperature</span> {env?.temperature_c || env?.temperature || 40}°C</p>
+                                    </div>
+                                </div>
+
+                                {/* AI Reasoning */}
+                                <div className="col-span-2">
+                                    <h3 className="text-sm text-red-400/70 uppercase mb-3 font-bold">🧠 Clinical Reasoning</h3>
+                                    <p className="text-red-100 text-xl leading-relaxed mb-8">
+                                        {triage?.clinical_reasoning}
+                                    </p>
+                                    
+                                    <h3 className="text-sm text-red-400/70 uppercase mb-3 font-bold">🔊 Audio Intervention Protocol</h3>
+                                    <div className="bg-black/40 border border-red-900/50 rounded-lg p-5 text-cyan-300 text-xl italic font-serif">
+                                        "{triage?.audio_instruction}"
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
 </html>
