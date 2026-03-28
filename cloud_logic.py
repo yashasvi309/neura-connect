@@ -5,21 +5,23 @@ from __future__ import annotations
 import json
 import os
 from typing import Any
-
 import requests
+
+from dotenv import load_dotenv
+load_dotenv()
 
 FEATHERLESS_API_KEY = os.getenv("FEATHERLESS_API_KEY")
 FEATHERLESS_URL = os.getenv(
     "FEATHERLESS_URL", "https://api.featherless.ai/v1/chat/completions"
 )
 
+# THE MAGIC TOGGLE: If DEMO_MODE is True, it uses the safe presentation data. 
+# If False, it attempts the real live API call.
+DEMO_MODE = os.getenv("DEMO_MODE", "True").lower() in ("true", "1", "t", "yes")
+
 
 def fetch_environment() -> dict[str, Any]:
-    """
-    Simulate a Bright Data scrape result for environmental stressors.
-
-    Returns a deterministic high-heat / poor-AQI payload for demo flow.
-    """
+    """Simulate a Bright Data scrape result for environmental stressors."""
     return {
         "source": "bright_data_simulated",
         "location": "Hyderabad",
@@ -42,6 +44,7 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
 
 def _fallback_decision(variance: float, env_data: dict[str, Any], reason: str) -> dict[str, str]:
+    """Fallback if the real API fails while not in Demo Mode."""
     return {
         "severity": "HIGH" if variance >= 2.5 else "MODERATE",
         "audio_instruction": "Please stop moving, sit down in shade, and hydrate now.",
@@ -54,13 +57,26 @@ def _fallback_decision(variance: float, env_data: dict[str, Any], reason: str) -
 
 def get_triage_decision(variance: float, env_data: dict[str, Any]) -> dict[str, str]:
     """
-    Ask Featherless (Llama-3-8B) for triage and enforce pure JSON response.
-
-    Output schema:
-    - severity
-    - audio_instruction
-    - clinical_reasoning
+    Core AI logic. Checks DEMO_MODE first to ensure presentation safety.
+    If DEMO_MODE is False, executes the live Llama-3 API call.
     """
+    
+    # 🚨 PRESENTATION SAFETY NET 🚨
+    if DEMO_MODE:
+        print("🟢 DEMO MODE ACTIVE: Using guaranteed presentation data.")
+        return {
+            "severity": "CRITICAL",
+            "audio_instruction": "High magnitude tremor detected. Please sit down in the shade immediately and hydrate.",
+            "clinical_reasoning": (
+                f"Simulated AI Analysis: The patient is experiencing a severe variance event ({variance:.2f}g) "
+                f"compounded by hazardous environmental stressors (Temp: {env_data.get('temperature_c', 42)}°C, "
+                f"AQI: {env_data.get('aqi', 178)}). This combination suggests acute neurological distress "
+                "exacerbated by heat exhaustion. Immediate stationary rest is required."
+            )
+        }
+
+    # 🌐 REAL API LOGIC 🌐
+    print("🌐 LIVE MODE ACTIVE: Attempting Featherless API call...")
     if not FEATHERLESS_API_KEY:
         return _fallback_decision(variance, env_data, "FEATHERLESS_API_KEY missing")
 
@@ -109,9 +125,7 @@ def get_triage_decision(variance: float, env_data: dict[str, Any]) -> dict[str, 
 
 
 def sync_device_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """
-    Entry point used by backend app when anomaly events are triggered.
-    """
+    """Entry point used by backend app when anomaly events are triggered."""
     variance_value = float(payload.get("value", 0.0))
     env_data = fetch_environment()
     triage = get_triage_decision(variance_value, env_data)
