@@ -3,129 +3,202 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neura Connect | Triage Dashboard</title>
-    
+    <title>Neura Connect | Edge Triage</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        medical: { 900: '#0f172a', 800: '#1e293b', accent: '#0ea5e9', danger: '#e11d48', safe: '#10b981', warn: '#f59e0b' }
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        body { background-color: #020617; color: #cbd5e1; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+        body { background-color: #0f172a; color: #f8fafc; font-family: ui-sans-serif, system-ui, sans-serif; overflow-x: hidden; }
+        .pulse-danger { box-shadow: 0 0 30px rgba(225, 29, 72, 0.4); animation: flash 2s infinite; }
+        @keyframes flash { 0% { opacity: 1; } 50% { opacity: 0.85; } 100% { opacity: 1; } }
+        .grid-bg { background-image: linear-gradient(to right, #1e293b 1px, transparent 1px), linear-gradient(to bottom, #1e293b 1px, transparent 1px); background-size: 20px 20px; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
-        function App() {
-            const [telemetry, setTelemetry] = useState({
-                status: 'STANDBY',
-                z: 0.0,
-                variance: 0.0,
-                cloud_response: null
-            });
+        function Dashboard() {
+            const [status, setStatus] = useState("BASELINE");
+            const [variance, setVariance] = useState(0.85);
+            const [energySaved, setEnergySaved] = useState(1240);
+            const [triageData, setTriageData] = useState(null);
+            
+            // History array for the live graph (holds last 40 data points)
+            const [history, setHistory] = useState(Array(40).fill(0.85));
+            const hasSpoken = useRef(false);
 
-            // Poll the local Flask Hub every 500ms
+            // Real-time ticking and graph updates
             useEffect(() => {
-                const fetchStatus = async () => {
-                    try {
-                        const res = await fetch('http://127.0.0.1:5000/status');
-                        const data = await res.json();
-                        setTelemetry(data);
-                    } catch (err) {
-                        console.error("Waiting for Neura Connect Hub...");
+                const interval = setInterval(() => {
+                    if (status === "BASELINE" || status === "MINOR") {
+                        setEnergySaved(prev => prev + 14); 
+                        // Create natural looking noise
+                        const noise = status === "MINOR" ? (2.5 + Math.random() * 1.5) : (0.5 + Math.random() * 0.8);
+                        setVariance(noise);
+                        setHistory(prev => [...prev.slice(1), noise]);
                     }
-                };
-
-                const interval = setInterval(fetchStatus, 500);
+                }, 1000);
                 return () => clearInterval(interval);
-            }, []);
+            }, [status]);
 
-            const isAlert = telemetry.status === 'ALERT';
-            const env = telemetry.cloud_response?.environment;
-            const triage = telemetry.cloud_response?.triage;
+            // Audio Alert Logic
+            useEffect(() => {
+                if (status === "CRITICAL" && triageData && !hasSpoken.current) {
+                    const speech = new SpeechSynthesisUtterance(triageData.triage.audio_instruction);
+                    speech.rate = 0.9;
+                    speech.pitch = 1.1;
+                    window.speechSynthesis.speak(speech);
+                    hasSpoken.current = true;
+                }
+            }, [status, triageData]);
+
+            // The Simulation Bay Controls
+            const injectBaseline = () => {
+                setStatus("BASELINE");
+                setTriageData(null);
+                hasSpoken.current = false;
+                window.speechSynthesis.cancel(); // Stop current speech if any
+            };
+
+            const injectMinorTremor = () => {
+                setStatus("MINOR");
+                setTriageData(null);
+            };
+
+            const injectCritical = () => {
+                setStatus("CRITICAL");
+                const criticalVal = 14.37 + Math.random();
+                setVariance(criticalVal);
+                setHistory(prev => [...prev.slice(1), criticalVal]);
+                setTriageData({
+                    triage: {
+                        severity: "CRITICAL",
+                        audio_instruction: "High magnitude tremor detected. Please sit down in the shade immediately and hydrate.",
+                        clinical_reasoning: `Simulated AI Analysis: The patient is experiencing a severe variance event (${criticalVal.toFixed(2)}g) compounded by hazardous environmental stressors (Temp: 42°C, AQI: 178). This combination suggests acute neurological distress exacerbated by heat exhaustion. Immediate stationary rest is required.`
+                    },
+                    environment: { temperature_c: 42, aqi: 178 }
+                });
+            };
+
+            const isCritical = status === "CRITICAL";
+
+            // Calculate SVG Graph Points
+            const maxVal = Math.max(...history, 15);
+            const svgPoints = history.map((val, i) => `${(i / 39) * 100},${100 - (val / maxVal) * 100}`).join(' ');
 
             return (
-                <div className="min-h-screen p-8">
-                    {/* HEADER */}
-                    <div className="flex justify-between items-center border-b border-slate-800 pb-4 mb-8">
+                <div className="min-h-screen p-8 flex flex-col items-center">
+                    {/* Header */}
+                    <div className="w-full max-w-5xl flex justify-between items-center mb-6 border-b border-medical-800 pb-4">
                         <div>
-                            <h1 className="text-4xl font-bold tracking-wider text-white">NEURA<span className="text-cyan-500">CONNECT</span></h1>
-                            <p className="text-sm text-slate-500 uppercase tracking-widest mt-1">Distributed Neurological Triage</p>
+                            <h1 className="text-3xl font-bold tracking-wider text-white">NEURA<span className="text-medical-accent">CONNECT</span></h1>
+                            <p className="text-gray-400 text-sm mt-1">Edge-to-Cloud Triage Node</p>
                         </div>
-                        
-                        {/* STATUS PILL */}
-                        <div className={`px-6 py-2 rounded-full border-2 font-bold tracking-widest uppercase transition-colors duration-500 ${
-                            isAlert 
-                                ? 'bg-red-950 border-red-500 text-red-500 animate-pulse' 
-                                : 'bg-cyan-950/30 border-cyan-800 text-cyan-500'
-                        }`}>
-                            {isAlert ? '🚨 CRITICAL ALERT' : '🟢 STANDBY'}
-                        </div>
-                    </div>
-
-                    {/* MAIN METRICS */}
-                    <div className="grid grid-cols-2 gap-6 mb-8">
-                        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-                            <h2 className="text-sm text-slate-500 uppercase mb-2">Live Z-Axis (g)</h2>
-                            <div className="text-7xl font-light text-white">
-                                {telemetry.z.toFixed(2)}
+                        <div className="flex space-x-4">
+                            <div className="px-4 py-2 rounded bg-medical-800 border border-gray-700 flex items-center">
+                                <div className={`w-3 h-3 rounded-full mr-2 ${isCritical ? 'bg-medical-danger' : 'bg-medical-safe'}`}></div>
+                                <span className="text-sm font-medium">TRM Edge: {isCritical ? 'ALERT' : 'ACTIVE'}</span>
                             </div>
-                        </div>
-                        
-                        <div className={`border rounded-xl p-6 transition-colors duration-500 ${isAlert ? 'bg-red-950/20 border-red-900/50' : 'bg-slate-900 border-slate-800'}`}>
-                            <h2 className="text-sm text-slate-500 uppercase mb-2">EWMV Variance (TRM)</h2>
-                            <div className={`text-7xl font-light ${isAlert ? 'text-red-400' : 'text-cyan-400'}`}>
-                                {telemetry.variance.toFixed(2)}
+                            <div className="px-4 py-2 rounded bg-medical-800 border border-gray-700 flex items-center">
+                                <div className={`w-3 h-3 rounded-full mr-2 ${isCritical ? 'bg-medical-accent animate-pulse' : 'bg-gray-600'}`}></div>
+                                <span className="text-sm font-medium text-white">Cloud AI: {isCritical ? 'ENGAGED' : 'STANDBY'}</span>
                             </div>
                         </div>
                     </div>
 
-                    {/* CLOUD LOGIC PANEL (Only shows during an alert) */}
-                    {isAlert && telemetry.cloud_response && (
-                        <div className="bg-red-950/30 border border-red-900 rounded-xl overflow-hidden mt-8">
-                            <div className="bg-red-950 px-6 py-3 border-b border-red-900 flex justify-between">
-                                <span className="font-bold text-red-400">FEATHERLESS AI TRIAGE REPORT</span>
-                                <span className="text-red-500 font-bold tracking-wider">Priority: {triage?.severity || 'HIGH'}</span>
+                    <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                        {/* Left: Telemetry & Graph */}
+                        <div className="col-span-1 space-y-6">
+                            <div className={`p-6 rounded-xl border ${isCritical ? 'bg-medical-danger/10 border-medical-danger pulse-danger' : 'bg-medical-800 border-gray-700'}`}>
+                                <h2 className="text-gray-400 text-sm font-semibold uppercase tracking-wider mb-2">Live Z-Axis EWMV</h2>
+                                <div className={`text-6xl font-black ${isCritical ? 'text-medical-danger' : status === 'MINOR' ? 'text-medical-warn' : 'text-medical-accent'}`}>
+                                    {variance.toFixed(2)}<span className="text-2xl text-gray-500 font-normal">g</span>
+                                </div>
+                                
+                                {/* Live Sparkline Graph */}
+                                <div className="mt-4 h-24 w-full grid-bg rounded border border-gray-700 overflow-hidden relative">
+                                    <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="none">
+                                        <polyline 
+                                            points={svgPoints} 
+                                            fill="none" 
+                                            stroke={isCritical ? '#e11d48' : status === 'MINOR' ? '#f59e0b' : '#0ea5e9'} 
+                                            strokeWidth="2" 
+                                            vectorEffect="non-scaling-stroke" 
+                                        />
+                                    </svg>
+                                </div>
                             </div>
-                            
-                            <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-                                {/* Bright Data Context */}
-                                <div className="col-span-1 border-r border-red-900/50 pr-6">
-                                    <h3 className="text-sm text-red-400/70 uppercase mb-3 font-bold">🌐 Environmental Context</h3>
-                                    <div className="space-y-3 text-lg text-red-200">
-                                        <p><span className="text-red-500/50 text-sm uppercase block">Location</span> {env?.location || 'Hyderabad'}</p>
-                                        <p><span className="text-red-500/50 text-sm uppercase block">Air Quality</span> {env?.aqi || 165} (Unhealthy)</p>
-                                        <p><span className="text-red-500/50 text-sm uppercase block">Temperature</span> {env?.temperature_c || env?.temperature || 40}°C</p>
+
+                            <div className="p-6 rounded-xl bg-medical-800 border border-gray-700">
+                                <h2 className="text-gray-400 text-sm font-semibold uppercase tracking-wider mb-2">Sustainability Impact</h2>
+                                <div className="text-4xl font-bold text-medical-safe">{energySaved.toLocaleString()} <span className="text-lg text-gray-500 font-normal">KB</span></div>
+                                <p className="text-xs text-gray-400 mt-2">Cloud Bandwidth Prevented</p>
+                            </div>
+                        </div>
+
+                        {/* Right: AI Panel */}
+                        <div className="col-span-2">
+                            {isCritical && triageData ? (
+                                <div className="h-full p-8 rounded-xl bg-medical-danger/10 border border-medical-danger flex flex-col justify-center">
+                                    <h2 className="text-2xl font-bold text-white mb-4 flex items-center">
+                                        <span className="text-medical-danger text-3xl mr-3">⚠️</span> CRITICAL ANOMALY
+                                    </h2>
+                                    <div className="bg-medical-900 rounded p-5 mb-4 border border-medical-danger/30">
+                                        <h3 className="text-medical-danger text-xs font-bold uppercase mb-2 tracking-wider">Featherless.ai Clinical Reasoning</h3>
+                                        <p className="text-gray-200 leading-relaxed">{triageData.triage.clinical_reasoning}</p>
+                                    </div>
+                                    <div className="bg-medical-900 rounded p-4 border border-gray-700">
+                                        <h3 className="text-medical-accent text-xs font-bold uppercase mb-2 tracking-wider">Audio Intervention Dispatched</h3>
+                                        <p className="text-white italic">"{triageData.triage.audio_instruction}"</p>
                                     </div>
                                 </div>
-
-                                {/* AI Reasoning */}
-                                <div className="col-span-2">
-                                    <h3 className="text-sm text-red-400/70 uppercase mb-3 font-bold">🧠 Clinical Reasoning</h3>
-                                    <p className="text-red-100 text-xl leading-relaxed mb-8">
-                                        {triage?.clinical_reasoning}
+                            ) : (
+                                <div className="h-full p-8 rounded-xl bg-medical-800 border border-gray-700 flex flex-col items-center justify-center text-center">
+                                    <div className={`w-20 h-20 rounded-full mb-4 flex items-center justify-center ${status === 'MINOR' ? 'bg-medical-warn/20 text-medical-warn' : 'bg-medical-safe/20 text-medical-safe'}`}>
+                                        <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                    </div>
+                                    <h2 className="text-xl font-bold text-white mb-2">{status === 'MINOR' ? 'Minor Variance Detected' : 'Patient Status Normal'}</h2>
+                                    <p className="text-sm text-gray-400 max-w-md">
+                                        {status === 'MINOR' 
+                                            ? 'The TRM Edge Node detected movement, but successfully classified it as non-critical. Cloud AI remains asleep to save power.'
+                                            : 'Continuous local edge monitoring active. EWMV variance is well within safe thresholds.'}
                                     </p>
-                                    
-                                    <h3 className="text-sm text-red-400/70 uppercase mb-3 font-bold">🔊 Audio Intervention Protocol</h3>
-                                    <div className="bg-black/40 border border-red-900/50 rounded-lg p-5 text-cyan-300 text-xl italic font-serif">
-                                        "{triage?.audio_instruction}"
-                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
-                    )}
+                    </div>
+
+                    {/* Developer Simulation Bay */}
+                    <div className="w-full max-w-5xl p-4 bg-medical-900 border border-gray-800 rounded-xl flex items-center justify-between">
+                        <span className="text-xs text-gray-500 font-mono tracking-widest uppercase">Demo Control Bay</span>
+                        <div className="flex space-x-3">
+                            <button onClick={injectBaseline} className="px-4 py-2 bg-medical-800 hover:bg-gray-700 text-white text-sm rounded border border-gray-600 transition">1. Baseline</button>
+                            <button onClick={injectMinorTremor} className="px-4 py-2 bg-medical-warn/20 hover:bg-medical-warn/30 text-medical-warn text-sm rounded border border-medical-warn/50 transition">2. Minor Tremor (Edge)</button>
+                            <button onClick={injectCritical} className="px-4 py-2 bg-medical-danger/20 hover:bg-medical-danger/30 text-medical-danger text-sm rounded border border-medical-danger/50 transition">3. Severe Anomaly (Cloud)</button>
+                        </div>
+                    </div>
+
                 </div>
             );
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(<Dashboard />);
     </script>
 </body>
 </html>
